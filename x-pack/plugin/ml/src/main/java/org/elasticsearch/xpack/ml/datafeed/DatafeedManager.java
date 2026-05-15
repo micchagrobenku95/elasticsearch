@@ -466,7 +466,7 @@ public final class DatafeedManager {
                 revokeKeyOnFailure(result.persistedCredential().id(), datafeedId, listener)
             );
         }, e -> {
-            logger.error("[{}] Failed to create internal cloud API key for CPS datafeed", datafeedId, e);
+            logger.error(() -> "[" + datafeedId + "] Failed to create internal cloud API key for CPS datafeed", e);
             listener.onFailure(e);
         }));
     }
