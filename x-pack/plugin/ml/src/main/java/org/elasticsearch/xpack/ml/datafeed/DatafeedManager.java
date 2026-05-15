@@ -19,7 +19,6 @@ import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.core.CheckedConsumer;
 import org.elasticsearch.core.Nullable;
-import org.elasticsearch.core.Tuple;
 import org.elasticsearch.index.IndexNotFoundException;
 import org.elasticsearch.license.RemoteClusterLicenseChecker;
 import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
@@ -344,7 +343,11 @@ public final class DatafeedManager {
     ) {
         // TODO: invoke InternalCloudApiKeyService.revokeCloudApiKey once the revoke primitive is available
         // (tracked in beads issue elastic-workspace-3kf)
-        logger.warn("[{}] Skipping revocation of old cloud API key [{}] — revoke primitive not yet available", datafeedId, oldCredential.id());
+        logger.warn(
+            "[{}] Skipping revocation of old cloud API key [{}] — revoke primitive not yet available",
+            datafeedId,
+            oldCredential.id()
+        );
         listener.onResponse(new PutDatafeedAction.Response(patchedConfig));
     }
 

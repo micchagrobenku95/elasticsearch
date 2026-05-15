@@ -230,7 +230,11 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
             // (For config, headers are explicitly transferred from the auth headers by code in the put/update datafeed actions.)
             parser.declareObject(Builder::setHeaders, (p, c) -> p.mapStrings(), HEADERS);
             // cloud_internal_credential is only parsed from internal storage (lenient parser), not from REST requests.
-            parser.declareObject(Builder::setCloudInternalCredential, (p, c) -> PersistedCloudCredential.fromXContent(p), CLOUD_INTERNAL_CREDENTIAL);
+            parser.declareObject(
+                Builder::setCloudInternalCredential,
+                (p, c) -> PersistedCloudCredential.fromXContent(p),
+                CLOUD_INTERNAL_CREDENTIAL
+            );
         }
         parser.declareObject(
             Builder::setDelayedDataCheckConfig,

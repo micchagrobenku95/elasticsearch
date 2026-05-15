@@ -175,12 +175,7 @@ class ScrollDataExtractor implements DataExtractor {
 
     protected SearchResponse executeSearchRequest(ActionRequestBuilder<?, SearchResponse> searchRequestBuilder) {
         return checkForSkippedClusters(
-            ClientHelper.executeWithHeaders(
-                context.queryContext.headers,
-                ClientHelper.ML_ORIGIN,
-                client,
-                searchRequestBuilder::get
-            )
+            ClientHelper.executeWithHeaders(context.queryContext.headers, ClientHelper.ML_ORIGIN, client, searchRequestBuilder::get)
         );
     }
 

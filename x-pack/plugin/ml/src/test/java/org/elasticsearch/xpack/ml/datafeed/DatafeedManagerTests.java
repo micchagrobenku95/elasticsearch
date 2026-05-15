@@ -243,14 +243,15 @@ public class DatafeedManagerTests extends ESTestCase {
                 Tuple<DatafeedConfig, PersistedCloudCredential>>) invocation.getArguments()[5];
             listener.onFailure(new RuntimeException("simulated update failure"));
             return null;
-        }).when(datafeedConfigProvider).updateDatefeedConfig(
-            anyString(),
-            any(DatafeedUpdate.class),
-            any(Map.class),
-            any(PersistedCloudCredential.class),
-            any(),
-            any()
-        );
+        }).when(datafeedConfigProvider)
+            .updateDatefeedConfig(
+                anyString(),
+                any(DatafeedUpdate.class),
+                any(Map.class),
+                any(PersistedCloudCredential.class),
+                any(),
+                any()
+            );
 
         DatafeedUpdate.Builder updateBuilder = new DatafeedUpdate.Builder("test-datafeed");
         updateBuilder.setIndices(List.of("new-logs-*"));
@@ -259,13 +260,7 @@ public class DatafeedManagerTests extends ESTestCase {
         ClusterState clusterState = mockClusterStateForUpdate();
 
         AtomicReference<Exception> failure = new AtomicReference<>();
-        manager.updateDatafeed(
-            request,
-            clusterState,
-            null,
-            threadPool,
-            ActionListener.wrap(r -> fail("Expected failure"), failure::set)
-        );
+        manager.updateDatafeed(request, clusterState, null, threadPool, ActionListener.wrap(r -> fail("Expected failure"), failure::set));
 
         assertThat(failure.get(), notNullValue());
         assertThat(failure.get().getMessage(), containsString("simulated update failure"));
