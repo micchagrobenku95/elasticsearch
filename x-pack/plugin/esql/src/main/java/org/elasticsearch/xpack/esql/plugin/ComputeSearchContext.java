@@ -82,6 +82,8 @@ class ComputeSearchContext implements Releasable {
                 return new ReinitializingSourceProvider(super::createSourceProvider);
             }
         };
+        // Registered unconditionally; for detached shard contexts this is a no-op since the remote fetch path does not construct
+        // Lucene queries and the counter stays at zero.
         searchContext.addReleasable(searchExecutionContext::releaseQueryConstructionMemory);
         return new DefaultShardContext(index, releasable, searchExecutionContext, searchContext.request().getAliasFilter());
     }
