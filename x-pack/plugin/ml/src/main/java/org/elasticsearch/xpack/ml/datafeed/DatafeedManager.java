@@ -145,7 +145,7 @@ public final class DatafeedManager {
                     .indices(indices);
 
                 ActionListener<HasPrivilegesResponse> privResponseListener = listener.delegateFailureAndWrap(
-                    (l, r) -> handlePrivsResponse(username, request, r, state, threadPool, l)
+                    (l, r) -> handlePrivsResponse(username, request, r, state, threadPool, securityContext, l)
                 );
 
                 ActionListener<GetRollupIndexCapsAction.Response> getRollupIndexCapsActionHandler = ActionListener.wrap(response -> {
@@ -185,7 +185,7 @@ public final class DatafeedManager {
             // Check if this is a CPS datafeed even without security (e.g. for testing)
             if (crossProjectModeDecider.crossProjectEnabled()
                 && credentialManager().hasCloudManagedCredential(threadPool.getThreadContext())) {
-                grantCpsKeyAndPutDatafeed(request, state, threadPool, listener);
+                grantCpsKeyAndPutDatafeed(request, state, threadPool, null, listener);
             } else {
                 putDatafeed(request, threadPool.getThreadContext().getHeaders(), state, listener);
             }
@@ -266,7 +266,7 @@ public final class DatafeedManager {
             // CPS migration check: if the environment supports CPS and the request carries a cloud-managed credential,
             // we may need to mint an internal API key for a legacy datafeed transitioning to CPS.
             if (crossProjectModeDecider.crossProjectEnabled() && hasCpsCredential) {
-                applyCpsUpdateWithRekey(request, threadPool, wrappedValidator, listener);
+                applyCpsUpdateWithRekey(request, threadPool, securityContext, wrappedValidator, listener);
             } else {
                 datafeedConfigProvider.updateDatefeedConfig(
                     request.getUpdate().getId(),
@@ -294,10 +294,15 @@ public final class DatafeedManager {
     /**
      * Grants a new cloud internal API key, applies the datafeed update, persists the new credential in the same write,
      * and best-effort revokes the old key if one existed (re-key case).
+     *
+     * @implNote Synchronous credential extraction runs inside the caller's {@code useSecondaryAuthIfAvailable} block
+     *           (see {@link #updateDatafeed}). The grant callback runs asynchronously and must re-enter secondary auth
+     *           so cloud-managed credentials are still visible in {@link org.elasticsearch.common.util.concurrent.ThreadContext}.
      */
     private void applyCpsUpdateWithRekey(
         UpdateDatafeedAction.Request request,
         ThreadPool threadPool,
+        SecurityContext securityContext,
         BiConsumer<DatafeedConfig, ActionListener<Boolean>> wrappedValidator,
         ActionListener<PutDatafeedAction.Response> listener
     ) {
@@ -306,29 +311,31 @@ public final class DatafeedManager {
         Map<String, String> userHeaders = threadPool.getThreadContext().getHeaders();
 
         apiKeyService().grantCloudAuthentication(callerCredential, "datafeed:" + datafeedId, ActionListener.wrap(result -> {
-            logger.info("[{}] Minted internal cloud API key for CPS datafeed update (re-key)", datafeedId);
+            useSecondaryAuthIfAvailable(securityContext, () -> {
+                logger.info("[{}] Minted internal cloud API key for CPS datafeed update (re-key)", datafeedId);
 
-            PersistedCloudCredential newCredential = result.persistedCredential();
+                PersistedCloudCredential newCredential = result.persistedCredential();
 
-            // Wrap listener to best-effort revoke the newly minted key if downstream operations fail
-            ActionListener<PutDatafeedAction.Response> guardedListener = revokeKeyOnFailure(newCredential.id(), datafeedId, listener);
+                // Wrap listener to best-effort revoke the newly minted key if downstream operations fail
+                ActionListener<PutDatafeedAction.Response> guardedListener = revokeKeyOnFailure(newCredential.id(), datafeedId, listener);
 
-            datafeedConfigProvider.updateDatefeedConfig(
-                datafeedId,
-                request.getUpdate(),
-                userHeaders,
-                newCredential,
-                wrappedValidator,
-                guardedListener.delegateFailureAndWrap((l, tuple) -> {
-                    DatafeedConfig updatedConfig = tuple.v1();
-                    PersistedCloudCredential oldCredential = tuple.v2();
-                    if (oldCredential != null) {
-                        bestEffortRevokeOldKey(datafeedId, oldCredential, updatedConfig, l);
-                    } else {
-                        l.onResponse(new PutDatafeedAction.Response(updatedConfig));
-                    }
-                })
-            );
+                datafeedConfigProvider.updateDatefeedConfig(
+                    datafeedId,
+                    request.getUpdate(),
+                    userHeaders,
+                    newCredential,
+                    wrappedValidator,
+                    guardedListener.delegateFailureAndWrap((l, tuple) -> {
+                        DatafeedConfig updatedConfig = tuple.v1();
+                        PersistedCloudCredential oldCredential = tuple.v2();
+                        if (oldCredential != null) {
+                            bestEffortRevokeOldKey(datafeedId, oldCredential, updatedConfig, l);
+                        } else {
+                            l.onResponse(new PutDatafeedAction.Response(updatedConfig));
+                        }
+                    })
+                );
+            });
         }, listener::onFailure));
     }
 
@@ -405,13 +412,14 @@ public final class DatafeedManager {
         HasPrivilegesResponse response,
         ClusterState clusterState,
         ThreadPool threadPool,
+        SecurityContext securityContext,
         ActionListener<PutDatafeedAction.Response> listener
     ) throws IOException {
         if (response.isCompleteMatch()) {
             // Check if this is a CPS datafeed that needs an internal API key
             if (crossProjectModeDecider.crossProjectEnabled()
                 && credentialManager().hasCloudManagedCredential(threadPool.getThreadContext())) {
-                grantCpsKeyAndPutDatafeed(request, clusterState, threadPool, listener);
+                grantCpsKeyAndPutDatafeed(request, clusterState, threadPool, securityContext, listener);
             } else {
                 // Legacy path - no CPS or no cloud-managed credential
                 putDatafeed(request, threadPool.getThreadContext().getHeaders(), clusterState, listener);
@@ -440,35 +448,46 @@ public final class DatafeedManager {
      * Grants a CPS internal API key for the datafeed, updates the request with the new key and auth headers,
      * then delegates to {@link #putDatafeed}. Used by both the security and non-security creation paths.
      * If any downstream operation fails after the key is created, the key is revoked to prevent leaks.
+     *
+     * @param securityContext when non-null (security-enabled put path), synchronous extraction and the grant
+     *                        response callback are wrapped with
+     *                        {@link org.elasticsearch.xpack.ml.utils.SecondaryAuthorizationUtils#useSecondaryAuthIfAvailable}
+     *                        so {@link org.elasticsearch.xpack.core.security.cloud.CloudCredentialManager} sees secondary-authenticated
+     *                        headers after async privilege checks.
      */
     private void grantCpsKeyAndPutDatafeed(
         PutDatafeedAction.Request request,
         ClusterState clusterState,
         ThreadPool threadPool,
+        @Nullable SecurityContext securityContext,
         ActionListener<PutDatafeedAction.Response> listener
     ) {
-        String datafeedId = request.getDatafeed().getId();
-        logger.info("[{}] CPS-enabled datafeed creation detected; minting internal cloud API key", datafeedId);
+        useSecondaryAuthIfAvailable(securityContext, () -> {
+            String datafeedId = request.getDatafeed().getId();
+            logger.info("[{}] CPS-enabled datafeed creation detected; minting internal cloud API key", datafeedId);
 
-        CloudCredential callerCredential = credentialManager().extractCloudManagedCredential(threadPool.getThreadContext());
-        Map<String, String> userHeaders = threadPool.getThreadContext().getHeaders();
+            CloudCredential callerCredential = credentialManager().extractCloudManagedCredential(threadPool.getThreadContext());
+            Map<String, String> userHeaders = threadPool.getThreadContext().getHeaders();
 
-        apiKeyService().grantCloudAuthentication(callerCredential, "datafeed:" + datafeedId, ActionListener.wrap(result -> {
-            DatafeedConfig.Builder builder = new DatafeedConfig.Builder(request.getDatafeed());
-            builder.setCloudInternalCredential(result.persistedCredential());
-            PutDatafeedAction.Request updatedRequest = new PutDatafeedAction.Request(builder.build());
-            updatedRequest.masterNodeTimeout(request.masterNodeTimeout());
-            // Wrap listener to best-effort revoke the newly minted key if downstream operations fail
-            putDatafeed(
-                updatedRequest,
-                userHeaders,
-                clusterState,
-                revokeKeyOnFailure(result.persistedCredential().id(), datafeedId, listener)
-            );
-        }, e -> {
-            logger.error(() -> "[" + datafeedId + "] Failed to create internal cloud API key for CPS datafeed", e);
-            listener.onFailure(e);
-        }));
+            apiKeyService().grantCloudAuthentication(callerCredential, "datafeed:" + datafeedId, ActionListener.wrap(result -> {
+                useSecondaryAuthIfAvailable(securityContext, () -> {
+                    DatafeedConfig.Builder builder = new DatafeedConfig.Builder(request.getDatafeed());
+                    builder.setCloudInternalCredential(result.persistedCredential());
+                    PutDatafeedAction.Request updatedRequest = new PutDatafeedAction.Request(builder.build());
+                    updatedRequest.masterNodeTimeout(request.masterNodeTimeout());
+                    // Wrap listener to best-effort revoke the newly minted key if downstream operations fail
+                    putDatafeed(
+                        updatedRequest,
+                        userHeaders,
+                        clusterState,
+                        revokeKeyOnFailure(result.persistedCredential().id(), datafeedId, listener)
+                    );
+                });
+            }, e -> {
+                logger.error(() -> "[" + datafeedId + "] Failed to create internal cloud API key for CPS datafeed", e);
+                listener.onFailure(e);
+            }));
+        });
     }
 
     /**

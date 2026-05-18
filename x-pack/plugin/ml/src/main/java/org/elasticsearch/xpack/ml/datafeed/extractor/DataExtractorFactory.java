@@ -18,7 +18,7 @@ import org.elasticsearch.xpack.core.ml.datafeed.DatafeedConfig;
 import org.elasticsearch.xpack.core.ml.job.config.Job;
 import org.elasticsearch.xpack.core.ml.utils.ExceptionsHelper;
 import org.elasticsearch.xpack.core.rollup.action.GetRollupIndexCapsAction;
-import org.elasticsearch.xpack.core.security.cloud.CloudCredentialsExtension;
+import org.elasticsearch.xpack.core.security.cloud.CloudCredentialManager;
 import org.elasticsearch.xpack.ml.datafeed.DatafeedTimingStatsReporter;
 import org.elasticsearch.xpack.ml.datafeed.extractor.aggregation.AggregatedSearchRequestBuilder;
 import org.elasticsearch.xpack.ml.datafeed.extractor.aggregation.AggregationDataExtractorFactory;
@@ -39,6 +39,7 @@ public interface DataExtractorFactory {
      */
     static void create(
         Client client,
+        CloudCredentialManager cloudCredentialManager,
         DatafeedConfig datafeed,
         QueryBuilder extraFilters,
         Job job,
@@ -46,11 +47,7 @@ public interface DataExtractorFactory {
         DatafeedTimingStatsReporter timingStatsReporter,
         ActionListener<DataExtractorFactory> listener
     ) {
-        // If the datafeed has a persisted cloud credential, wrap the client so all searches are
-        // automatically authenticated with that credential via ThreadContext injection.
-        final Client searchClient = CloudCredentialsExtension.getInstance()
-            .credentialManager()
-            .wrapClient(client, datafeed.getCloudInternalCredential());
+        final Client searchClient = cloudCredentialManager.wrapClient(client, datafeed.getCloudInternalCredential());
 
         final boolean hasAggs = datafeed.hasAggregations();
         final boolean isComposite = hasAggs && datafeed.hasCompositeAgg(xContentRegistry);

@@ -115,11 +115,7 @@ public class DatafeedConfigBuilderTests extends AbstractWireSerializingTestCase<
         // Note: project_routing is intentionally not randomized here to avoid validation issues
         // with mismatched indicesOptions. project_routing is tested separately in dedicated tests.
 
-        // Note: cloud_internal_credential is intentionally not randomized here. Like `headers`, it is a
-        // storage-only field (emitted by toXContent only with FOR_INTERNAL_STORAGE=true, parsed only by
-        // the LENIENT_PARSER), so the XContent round-trip used by AbstractSerializationTestCase
-        // #testFromXContent (default params + STRICT_PARSER) cannot preserve it and equals() would
-        // diverge silently. Dedicated coverage lives in DatafeedConfigTests.testCloudInternalApiKey*.
+        // Note: cloud_internal_credential is intentionally not randomized here. 
 
         if (randomBoolean()) {
             Map<String, Object> settings = new HashMap<>();

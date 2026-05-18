@@ -24,9 +24,7 @@ import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.xpack.ml.datafeed.LinkedClusterState;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Utility methods for various DataExtractor implementations.
@@ -37,27 +35,7 @@ public final class DataExtractorUtils {
     private static final String EARLIEST_TIME = "earliest_time";
     private static final String LATEST_TIME = "latest_time";
 
-    /**
-     * Name of the request-scoped serverless credential in the datafeed header map. Search and scroll must not
-     * send this header so the persisted auth headers (and cloud internal credential on the client, when present)
-     * are used instead.
-     */
-    public static final String SECURITY_SERVERLESS_REQUEST_SCOPED_CREDENTIAL_HEADER = "_security_serverless_request_scoped_credential";
-
     private DataExtractorUtils() {}
-
-    /**
-     * Returns headers for CPS search/scroll, dropping the request-scoped credential when present so execution
-     * uses persisted authentication.
-     */
-    public static Map<String, String> headersForCpsSearch(Map<String, String> headers) {
-        if (headers.containsKey(SECURITY_SERVERLESS_REQUEST_SCOPED_CREDENTIAL_HEADER) == false) {
-            return headers;
-        }
-        Map<String, String> copy = new HashMap<>(headers);
-        copy.remove(SECURITY_SERVERLESS_REQUEST_SCOPED_CREDENTIAL_HEADER);
-        return copy;
-    }
 
     /**
      * Combines a user query with a time range query.

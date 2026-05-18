@@ -1229,7 +1229,8 @@ public class MachineLearning extends Plugin
             System::currentTimeMillis,
             jobResultsPersister,
             settings,
-            clusterService
+            clusterService,
+            machineLearningExtension.get().getCloudCredentialManager()
         );
         DatafeedContextProvider datafeedContextProvider = new DatafeedContextProvider(
             jobConfigProvider,

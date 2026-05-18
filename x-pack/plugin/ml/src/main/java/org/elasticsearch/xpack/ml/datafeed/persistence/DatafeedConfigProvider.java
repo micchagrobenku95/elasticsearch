@@ -319,55 +319,13 @@ public class DatafeedConfigProvider {
         BiConsumer<DatafeedConfig, ActionListener<Boolean>> validator,
         ActionListener<DatafeedConfig> updatedConfigListener
     ) {
-        GetRequest getRequest = new GetRequest(MlConfigIndex.indexName(), DatafeedConfig.documentId(datafeedId));
-
-        executeAsyncWithOrigin(
-            client,
-            ML_ORIGIN,
-            TransportGetAction.TYPE,
-            getRequest,
-            new DelegatingActionListener<>(updatedConfigListener) {
-                @Override
-                public void onResponse(GetResponse getResponse) {
-                    if (getResponse.isExists() == false) {
-                        delegate.onFailure(ExceptionsHelper.missingDatafeedException(datafeedId));
-                        return;
-                    }
-                    final long seqNo = getResponse.getSeqNo();
-                    final long primaryTerm = getResponse.getPrimaryTerm();
-                    BytesReference source = getResponse.getSourceAsBytesRef();
-                    DatafeedConfig.Builder configBuilder;
-                    try {
-                        configBuilder = parseLenientlyFromSource(source);
-                    } catch (IOException e) {
-                        delegate.onFailure(new ElasticsearchParseException("Failed to parse datafeed config [" + datafeedId + "]", e));
-                        return;
-                    }
-
-                    DatafeedConfig updatedConfig;
-                    try {
-                        updatedConfig = update.apply(configBuilder.build(), headers, clusterService.state());
-                    } catch (Exception e) {
-                        delegate.onFailure(e);
-                        return;
-                    }
-
-                    validator.accept(
-                        updatedConfig,
-                        delegate.delegateFailureAndWrap(
-                            (l, ok) -> indexUpdatedConfig(
-                                updatedConfig,
-                                seqNo,
-                                primaryTerm,
-                                l.delegateFailureAndWrap((ll, indexResponse) -> {
-                                    assert indexResponse.getResult() == DocWriteResponse.Result.UPDATED;
-                                    ll.onResponse(updatedConfig);
-                                })
-                            )
-                        )
-                    );
-                }
-            }
+        updateDatefeedConfigInternal(
+            datafeedId,
+            update,
+            headers,
+            null,
+            validator,
+            updatedConfigListener.delegateFailureAndWrap((l, tuple) -> l.onResponse(tuple.v1()))
         );
     }
 
@@ -380,6 +338,17 @@ public class DatafeedConfigProvider {
      * credential it replaced (for best-effort revocation); otherwise {@code null} in the second tuple position.
      */
     public void updateDatefeedConfig(
+        String datafeedId,
+        DatafeedUpdate update,
+        Map<String, String> headers,
+        @Nullable PersistedCloudCredential newCredential,
+        BiConsumer<DatafeedConfig, ActionListener<Boolean>> validator,
+        ActionListener<Tuple<DatafeedConfig, PersistedCloudCredential>> updatedConfigListener
+    ) {
+        updateDatefeedConfigInternal(datafeedId, update, headers, newCredential, validator, updatedConfigListener);
+    }
+
+    private void updateDatefeedConfigInternal(
         String datafeedId,
         DatafeedUpdate update,
         Map<String, String> headers,
