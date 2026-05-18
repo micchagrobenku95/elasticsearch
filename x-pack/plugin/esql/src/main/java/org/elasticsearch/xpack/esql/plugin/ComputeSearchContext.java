@@ -66,6 +66,9 @@ class ComputeSearchContext implements Releasable {
      * Creates a fresh, independent {@link ShardContext} whose close does <i>not</i> release the underlying {@link SearchContext}. Use this
      * when the search context lifecycle is managed externally (e.g., by a {@link RetainedSearchContextsRegistry} entry) and must survive
      * across multiple sets of operators. Each call returns a new instance with its own ref count.
+     * <p>
+     * This detached mode is a temporary design: it exists to support retained-context remote fetch while the broader lifecycle model is
+     * being finalized. Expect it to be replaced or folded into a unified context ownership scheme in a follow-up.
      */
     ShardContext newDetachedShardContext() {
         return createShardContext(() -> {});
