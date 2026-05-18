@@ -103,6 +103,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -181,6 +182,7 @@ public class ComputeService {
     private final PlannerSettings.Holder plannerSettings;
     private final OperatorFactoryRegistry operatorFactoryRegistry;
     private final FormatReaderRegistry formatReaderRegistry;
+    private final Executor searchExecutor;
 
     @SuppressWarnings("this-escape")
     public ComputeService(
@@ -198,8 +200,8 @@ public class ComputeService {
         this.exchangeService = transportActionServices.exchangeService();
         this.bigArrays = bigArrays.withCircuitBreaking();
         this.blockFactory = blockFactory;
-        var esqlExecutor = threadPool.executor(ThreadPool.Names.SEARCH);
-        this.driverRunner = new DriverTaskRunner(transportService, esqlExecutor);
+        this.searchExecutor = threadPool.executor(ThreadPool.Names.SEARCH);
+        this.driverRunner = new DriverTaskRunner(transportService, searchExecutor);
         this.enrichLookupService = enrichLookupService;
         this.lookupFromIndexService = lookupFromIndexService;
         this.remoteFetchService = new RemoteFetchService(transportActionServices, this.bigArrays, blockFactory);
@@ -214,13 +216,13 @@ public class ComputeService {
             searchService,
             transportService,
             exchangeService,
-            esqlExecutor
+            searchExecutor
         );
         this.clusterComputeHandler = new ClusterComputeHandler(
             this,
             exchangeService,
             transportService,
-            esqlExecutor,
+            searchExecutor,
             dataNodeComputeHandler
         );
         this.plannerSettings = transportActionServices.plannerSettings();
@@ -463,7 +465,6 @@ public class ComputeService {
         ActionListener<Result> listener
     ) {
         assert ThreadPool.assertCurrentThreadPool(
-            ESQL_WORKER_THREAD_POOL_NAME,
             ThreadPool.Names.SYSTEM_READ,
             ThreadPool.Names.SEARCH,
             ThreadPool.Names.SEARCH_COORDINATION
@@ -511,10 +512,7 @@ public class ComputeService {
         var mainSessionId = newChildSession(sessionId);
         QueryPragmas queryPragmas = configuration.pragmas();
 
-        ExchangeSourceHandler mainExchangeSource = new ExchangeSourceHandler(
-            queryPragmas.exchangeBufferSize(),
-            transportService.getThreadPool().executor(ThreadPool.Names.SEARCH)
-        );
+        ExchangeSourceHandler mainExchangeSource = new ExchangeSourceHandler(queryPragmas.exchangeBufferSize(), searchExecutor);
 
         exchangeService.addExchangeSourceHandler(mainSessionId, mainExchangeSource);
         var finalListener = ActionListener.runBefore(listener, () -> exchangeService.removeExchangeSourceHandler(sessionId));
@@ -821,10 +819,7 @@ public class ComputeService {
          * entire plan.
          */
         List<Attribute> outputAttributes = resolvedPlan.output();
-        var exchangeSource = new ExchangeSourceHandler(
-            configuration.pragmas().exchangeBufferSize(),
-            transportService.getThreadPool().executor(ThreadPool.Names.SEARCH)
-        );
+        var exchangeSource = new ExchangeSourceHandler(configuration.pragmas().exchangeBufferSize(), searchExecutor);
         listener = ActionListener.runBefore(listener, () -> exchangeService.removeExchangeSourceHandler(sessionId));
         exchangeService.addExchangeSourceHandler(sessionId, exchangeSource);
         try (
@@ -999,10 +994,7 @@ public class ComputeService {
         ActionListener<Result> listener
     ) {
         List<Attribute> outputAttributes = resolvedPlan.output();
-        var exchangeSource = new ExchangeSourceHandler(
-            configuration.pragmas().exchangeBufferSize(),
-            transportService.getThreadPool().executor(ThreadPool.Names.SEARCH)
-        );
+        var exchangeSource = new ExchangeSourceHandler(configuration.pragmas().exchangeBufferSize(), searchExecutor);
         listener = ActionListener.runBefore(listener, () -> exchangeService.removeExchangeSourceHandler(sessionId));
         exchangeService.addExchangeSourceHandler(sessionId, exchangeSource);
         try (
@@ -1270,7 +1262,9 @@ public class ComputeService {
                 ActionListener.releaseAfter(driverListener, () -> Releasables.close(drivers))
             );
         } catch (Exception e) {
-            Releasables.close(context.searchContexts().iterable());
+            if (context.description().equals(DATA_DESCRIPTION)) {
+                Releasables.close(context.searchContexts().iterable());
+            }
             LOGGER.debug("Error in ComputeService.runCompute for : " + context.description());
             listener.onFailure(e);
         }
