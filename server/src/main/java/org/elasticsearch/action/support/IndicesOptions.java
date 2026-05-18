@@ -1152,7 +1152,7 @@ public record IndicesOptions(
     }
 
     public static IndicesOptions fromMap(Map<String, Object> map, IndicesOptions defaultSettings) {
-        return fromParameters(
+        IndicesOptions parsed = fromParameters(
             map.containsKey(WildcardOptions.EXPAND_WILDCARDS) ? map.get(WildcardOptions.EXPAND_WILDCARDS) : map.get("expandWildcards"),
             map.containsKey(ConcreteTargetOptions.IGNORE_UNAVAILABLE)
                 ? map.get(ConcreteTargetOptions.IGNORE_UNAVAILABLE)
@@ -1161,6 +1161,31 @@ public record IndicesOptions(
             map.containsKey(GatekeeperOptions.IGNORE_THROTTLED) ? map.get(GatekeeperOptions.IGNORE_THROTTLED) : map.get("ignoreThrottled"),
             defaultSettings
         );
+        return applyCrossProjectModeFromMap(map, parsed);
+    }
+
+    /**
+     * Merges {@code cross_project_mode} from a map (e.g. REST / document body) into indices options. Standard
+     * {@link #fromParameters} paths do not read this nested object; ML datafeeds and similar use {@link #fromMap}
+     * with a full {@code indices_options} object including {@code cross_project_mode.resolve_cross_project_index_expression}.
+     */
+    private static IndicesOptions applyCrossProjectModeFromMap(Map<String, Object> map, IndicesOptions parsed) {
+        Object crossProjectMode = map.get("cross_project_mode");
+        if (crossProjectMode instanceof Map<?, ?> == false) {
+            return parsed;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> crossProjectMap = (Map<String, Object>) crossProjectMode;
+        Object resolveObj = crossProjectMap.get("resolve_cross_project_index_expression");
+        if (resolveObj == null) {
+            return parsed;
+        }
+        boolean resolve = nodeBooleanValue(resolveObj, "resolve_cross_project_index_expression");
+        CrossProjectModeOptions crossProjectModeOptions = new CrossProjectModeOptions(resolve);
+        if (crossProjectModeOptions.equals(parsed.crossProjectModeOptions())) {
+            return parsed;
+        }
+        return IndicesOptions.builder(parsed).crossProjectModeOptions(crossProjectModeOptions).build();
     }
 
     /**
@@ -1175,7 +1200,8 @@ public record IndicesOptions(
             || GatekeeperOptions.IGNORE_THROTTLED.equals(name)
             || "ignoreThrottled".equals(name)
             || WildcardOptions.ALLOW_NO_INDICES.equals(name)
-            || "allowNoIndices".equals(name);
+            || "allowNoIndices".equals(name)
+            || "cross_project_mode".equals(name);
     }
 
     public static IndicesOptions fromParameters(

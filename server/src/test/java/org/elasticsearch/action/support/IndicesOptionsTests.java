@@ -357,6 +357,18 @@ public class IndicesOptionsTests extends ESTestCase {
         assertEquals(fromMap.resolveCrossProjectIndexExpression(), CrossProjectModeOptions.DEFAULT.resolveIndexExpression());
     }
 
+    public void testFromMapParsesCrossProjectMode() {
+        IndicesOptions defaults = IndicesOptions.strictExpandOpen();
+        Map<String, Object> settings = new HashMap<>();
+        settings.put("expand_wildcards", List.of("open", "closed"));
+        settings.put("ignore_unavailable", false);
+        settings.put("allow_no_indices", true);
+        settings.put("cross_project_mode", Map.of("resolve_cross_project_index_expression", true));
+
+        IndicesOptions fromMap = IndicesOptions.fromMap(settings, defaults);
+        assertTrue(fromMap.resolveCrossProjectIndexExpression());
+    }
+
     public void testToXContent() throws IOException {
         ConcreteTargetOptions concreteTargetOptions = new ConcreteTargetOptions(randomBoolean());
         WildcardOptions wildcardOptions = new WildcardOptions(randomBoolean(), randomBoolean(), randomBoolean(), randomBoolean());

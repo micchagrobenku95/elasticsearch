@@ -25,6 +25,7 @@ import org.elasticsearch.license.RemoteClusterLicenseChecker;
 import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.crossproject.CrossProjectModeDecider;
+import org.elasticsearch.transport.RemoteClusterAware;
 import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
@@ -39,6 +40,7 @@ import org.elasticsearch.xpack.core.ml.action.GetDatafeedsAction;
 import org.elasticsearch.xpack.core.ml.action.PutDatafeedAction;
 import org.elasticsearch.xpack.core.ml.action.UpdateDatafeedAction;
 import org.elasticsearch.xpack.core.ml.datafeed.DatafeedConfig;
+import org.elasticsearch.xpack.core.ml.datafeed.DatafeedUpdate;
 import org.elasticsearch.xpack.core.ml.datafeed.DatafeedState;
 import org.elasticsearch.xpack.core.ml.job.messages.Messages;
 import org.elasticsearch.xpack.core.ml.job.persistence.ElasticsearchMappings;
@@ -120,6 +122,19 @@ public final class DatafeedManager {
         return mlExtension.getCloudApiKeyService();
     }
 
+    /**
+     * Whether this datafeed may execute cross-project searches that require a persisted internal cloud credential.
+     */
+    private static boolean datafeedNeedsCloudInternalCredential(DatafeedConfig datafeed) {
+        if (datafeed.getProjectRouting() != null) {
+            return true;
+        }
+        if (datafeed.getIndicesOptions().resolveCrossProjectIndexExpression()) {
+            return true;
+        }
+        return RemoteClusterAware.getRemoteIndexExpressions(datafeed.getIndices().toArray(String[]::new)).isEmpty() == false;
+    }
+
     public void putDatafeed(
         PutDatafeedAction.Request request,
         ClusterState state,
@@ -185,7 +200,8 @@ public final class DatafeedManager {
         } else {
             // CPS without ES security: serverless internal deployments. Mint the key but skip privilege checks.
             if (crossProjectModeDecider.crossProjectEnabled()
-                && credentialManager().hasCloudManagedCredential(threadPool.getThreadContext())) {
+                && credentialManager().hasCloudManagedCredential(threadPool.getThreadContext())
+                && datafeedNeedsCloudInternalCredential(request.getDatafeed())) {
                 grantCpsKeyAndPutDatafeed(request, state, threadPool, null, listener);
             } else {
                 putDatafeed(request, threadPool.getThreadContext().getHeaders(), state, listener);
@@ -264,19 +280,37 @@ public final class DatafeedManager {
                 jobConfigProvider.validateDatafeedJob(updatedConfig, validatorListener);
             };
 
-            // CPS migration check: if the environment supports CPS and the request carries a cloud-managed credential,
-            // we may need to mint an internal API key for a legacy datafeed transitioning to CPS.
-            if (crossProjectModeDecider.crossProjectEnabled() && hasCpsCredential) {
-                applyCpsUpdateWithRekey(request, threadPool, securityContext, wrappedValidator, listener);
-            } else {
-                datafeedConfigProvider.updateDatefeedConfig(
-                    request.getUpdate().getId(),
-                    request.getUpdate(),
-                    headers,
-                    wrappedValidator,
-                    listener.delegateFailureAndWrap((l, updatedConfig) -> l.onResponse(new PutDatafeedAction.Response(updatedConfig)))
-                );
-            }
+            final String datafeedId = request.getUpdate().getId();
+            final DatafeedUpdate update = request.getUpdate();
+            datafeedConfigProvider.getDatafeedConfig(
+                datafeedId,
+                null,
+                listener.delegateFailureAndWrap((l, configBuilder) -> {
+                    try {
+                        final DatafeedConfig current = configBuilder.build();
+                        final DatafeedConfig merged = update.apply(current, headers, state);
+                        final boolean mayRekey = crossProjectModeDecider.crossProjectEnabled()
+                            && hasCpsCredential
+                            && datafeedNeedsCloudInternalCredential(merged)
+                            && (current.getCloudInternalCredential() == null || update.affectsCrossProjectSearchSurface(current));
+                        if (mayRekey) {
+                            applyCpsUpdateWithRekey(request, threadPool, securityContext, wrappedValidator, l);
+                        } else {
+                            datafeedConfigProvider.updateDatefeedConfig(
+                                datafeedId,
+                                update,
+                                headers,
+                                wrappedValidator,
+                                l.delegateFailureAndWrap(
+                                    (ll, updatedConfig) -> ll.onResponse(new PutDatafeedAction.Response(updatedConfig))
+                                )
+                            );
+                        }
+                    } catch (Exception e) {
+                        l.onFailure(e);
+                    }
+                })
+            );
         });
 
         // Obviously if we're updating a datafeed it's impossible that the config index has no mappings at
@@ -414,7 +448,8 @@ public final class DatafeedManager {
         if (response.isCompleteMatch()) {
             // Check if this is a CPS datafeed that needs an internal API key
             if (crossProjectModeDecider.crossProjectEnabled()
-                && credentialManager().hasCloudManagedCredential(threadPool.getThreadContext())) {
+                && credentialManager().hasCloudManagedCredential(threadPool.getThreadContext())
+                && datafeedNeedsCloudInternalCredential(request.getDatafeed())) {
                 grantCpsKeyAndPutDatafeed(request, clusterState, threadPool, securityContext, listener);
             } else {
                 // Legacy path - no CPS or no cloud-managed credential
