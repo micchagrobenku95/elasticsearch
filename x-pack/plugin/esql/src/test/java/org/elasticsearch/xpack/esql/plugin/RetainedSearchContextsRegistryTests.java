@@ -15,6 +15,7 @@ import org.junit.After;
 import org.mockito.Mockito;
 
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.hamcrest.Matchers.equalTo;
 
@@ -170,6 +171,80 @@ public class RetainedSearchContextsRegistryTests extends ESTestCase {
         registry.closeRegistration("session-1");
 
         expectThrows(IllegalStateException.class, () -> registry.acquire("session-1"));
+        assertTrue(searchContext.isClosed());
+    }
+
+    public void testConcurrentAcquireAndClose() throws InterruptedException {
+        SearchContext searchContext = createSearchContext();
+        AcquiredSearchContexts contexts = createContexts(searchContext);
+
+        RetainedSearchContextsRegistry.Handle registration = registry.register("session-1", contexts);
+        int threads = randomIntBetween(4, 16);
+        startInParallel(threads, i -> {
+            RetainedSearchContextsRegistry.Handle handle = registry.acquire("session-1");
+            handle.close();
+        });
+
+        assertFalse(searchContext.isClosed());
+        registration.close();
+        assertTrue(searchContext.isClosed());
+    }
+
+    public void testConcurrentAcquireDuringRegistrationClose() throws InterruptedException {
+        SearchContext searchContext = createSearchContext();
+        AcquiredSearchContexts contexts = createContexts(searchContext);
+
+        RetainedSearchContextsRegistry.Handle registration = registry.register("session-1", contexts);
+        int acquirers = randomIntBetween(4, 16);
+        CopyOnWriteArrayList<RetainedSearchContextsRegistry.Handle> acquired = new CopyOnWriteArrayList<>();
+        startInParallel(acquirers + 1, i -> {
+            if (i == 0) {
+                registration.close();
+            } else {
+                try {
+                    RetainedSearchContextsRegistry.Handle handle = registry.acquire("session-1");
+                    acquired.add(handle);
+                } catch (IllegalStateException expected) {
+                    // acquire after refcount reached zero
+                }
+            }
+        });
+
+        for (RetainedSearchContextsRegistry.Handle handle : acquired) {
+            handle.close();
+        }
+
+        assertTrue(searchContext.isClosed());
+    }
+
+    public void testConcurrentHandleCloseOnSameHandle() throws InterruptedException {
+        SearchContext searchContext = createSearchContext();
+        AcquiredSearchContexts contexts = createContexts(searchContext);
+
+        RetainedSearchContextsRegistry.Handle registration = registry.register("session-1", contexts);
+        RetainedSearchContextsRegistry.Handle handle = registry.acquire("session-1");
+
+        int threads = randomIntBetween(4, 16);
+        startInParallel(threads, i -> handle.close());
+
+        assertFalse(searchContext.isClosed());
+        registration.close();
+        assertTrue(searchContext.isClosed());
+    }
+
+    public void testConcurrentCloseRegistrationFromTwoPaths() throws InterruptedException {
+        SearchContext searchContext = createSearchContext();
+        AcquiredSearchContexts contexts = createContexts(searchContext);
+
+        RetainedSearchContextsRegistry.Handle registration = registry.register("session-1", contexts);
+        startInParallel(2, i -> {
+            if (i == 0) {
+                registration.close();
+            } else {
+                registry.closeRegistration("session-1");
+            }
+        });
+
         assertTrue(searchContext.isClosed());
     }
 
