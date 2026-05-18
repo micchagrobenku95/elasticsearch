@@ -25,9 +25,9 @@ import org.elasticsearch.license.RemoteClusterLicenseChecker;
 import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.crossproject.CrossProjectModeDecider;
-import org.elasticsearch.transport.RemoteClusterAware;
 import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.threadpool.ThreadPool;
+import org.elasticsearch.transport.RemoteClusterAware;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.elasticsearch.xcontent.XContentBuilder;
 import org.elasticsearch.xcontent.json.JsonXContent;
@@ -40,8 +40,8 @@ import org.elasticsearch.xpack.core.ml.action.GetDatafeedsAction;
 import org.elasticsearch.xpack.core.ml.action.PutDatafeedAction;
 import org.elasticsearch.xpack.core.ml.action.UpdateDatafeedAction;
 import org.elasticsearch.xpack.core.ml.datafeed.DatafeedConfig;
-import org.elasticsearch.xpack.core.ml.datafeed.DatafeedUpdate;
 import org.elasticsearch.xpack.core.ml.datafeed.DatafeedState;
+import org.elasticsearch.xpack.core.ml.datafeed.DatafeedUpdate;
 import org.elasticsearch.xpack.core.ml.job.messages.Messages;
 import org.elasticsearch.xpack.core.ml.job.persistence.ElasticsearchMappings;
 import org.elasticsearch.xpack.core.ml.utils.ExceptionsHelper;
@@ -282,35 +282,29 @@ public final class DatafeedManager {
 
             final String datafeedId = request.getUpdate().getId();
             final DatafeedUpdate update = request.getUpdate();
-            datafeedConfigProvider.getDatafeedConfig(
-                datafeedId,
-                null,
-                listener.delegateFailureAndWrap((l, configBuilder) -> {
-                    try {
-                        final DatafeedConfig current = configBuilder.build();
-                        final DatafeedConfig merged = update.apply(current, headers, state);
-                        final boolean mayRekey = crossProjectModeDecider.crossProjectEnabled()
-                            && hasCpsCredential
-                            && datafeedNeedsCloudInternalCredential(merged)
-                            && (current.getCloudInternalCredential() == null || update.affectsCrossProjectSearchSurface(current));
-                        if (mayRekey) {
-                            applyCpsUpdateWithRekey(request, threadPool, securityContext, wrappedValidator, l);
-                        } else {
-                            datafeedConfigProvider.updateDatefeedConfig(
-                                datafeedId,
-                                update,
-                                headers,
-                                wrappedValidator,
-                                l.delegateFailureAndWrap(
-                                    (ll, updatedConfig) -> ll.onResponse(new PutDatafeedAction.Response(updatedConfig))
-                                )
-                            );
-                        }
-                    } catch (Exception e) {
-                        l.onFailure(e);
+            datafeedConfigProvider.getDatafeedConfig(datafeedId, null, listener.delegateFailureAndWrap((l, configBuilder) -> {
+                try {
+                    final DatafeedConfig current = configBuilder.build();
+                    final DatafeedConfig merged = update.apply(current, headers, state);
+                    final boolean mayRekey = crossProjectModeDecider.crossProjectEnabled()
+                        && hasCpsCredential
+                        && datafeedNeedsCloudInternalCredential(merged)
+                        && (current.getCloudInternalCredential() == null || update.affectsCrossProjectSearchSurface(current));
+                    if (mayRekey) {
+                        applyCpsUpdateWithRekey(request, threadPool, securityContext, wrappedValidator, l);
+                    } else {
+                        datafeedConfigProvider.updateDatefeedConfig(
+                            datafeedId,
+                            update,
+                            headers,
+                            wrappedValidator,
+                            l.delegateFailureAndWrap((ll, updatedConfig) -> ll.onResponse(new PutDatafeedAction.Response(updatedConfig)))
+                        );
                     }
-                })
-            );
+                } catch (Exception e) {
+                    l.onFailure(e);
+                }
+            }));
         });
 
         // Obviously if we're updating a datafeed it's impossible that the config index has no mappings at
