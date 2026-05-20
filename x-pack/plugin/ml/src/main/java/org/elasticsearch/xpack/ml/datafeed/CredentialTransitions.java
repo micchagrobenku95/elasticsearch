@@ -368,23 +368,23 @@ public final class CredentialTransitions {
         BiConsumer<PersistedCloudCredential, Map<String, String>> onSuccess
     ) {
         useSecondaryAuthIfAvailable(securityContext, () -> {
-            CloudCredential callerCredential = credentialManagerSupplier.get()
-                .extractCloudManagedCredential(threadPool.getThreadContext());
+            CloudCredential callerCredential = credentialManagerSupplier.get().extractCloudManagedCredential(threadPool.getThreadContext());
             Map<String, String> userHeaders = threadPool.getThreadContext().getHeaders();
-            apiKeyServiceSupplier.get().grantCloudAuthentication(
-                callerCredential,
-                "datafeed:" + datafeedId,
-                ActionListener.wrap(
-                    result -> useSecondaryAuthIfAvailable(
-                        securityContext,
-                        () -> onSuccess.accept(result.persistedCredential(), userHeaders)
-                    ),
-                    e -> {
-                        logger.error(() -> "[" + datafeedId + "] Failed to mint internal cloud API key for CPS datafeed", e);
-                        failurePropagator.onFailure(e);
-                    }
-                )
-            );
+            apiKeyServiceSupplier.get()
+                .grantCloudAuthentication(
+                    callerCredential,
+                    "datafeed:" + datafeedId,
+                    ActionListener.wrap(
+                        result -> useSecondaryAuthIfAvailable(
+                            securityContext,
+                            () -> onSuccess.accept(result.persistedCredential(), userHeaders)
+                        ),
+                        e -> {
+                            logger.error(() -> "[" + datafeedId + "] Failed to mint internal cloud API key for CPS datafeed", e);
+                            failurePropagator.onFailure(e);
+                        }
+                    )
+                );
         });
     }
 
