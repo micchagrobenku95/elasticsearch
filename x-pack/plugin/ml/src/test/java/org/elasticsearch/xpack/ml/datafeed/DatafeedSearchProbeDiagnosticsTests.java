@@ -34,9 +34,7 @@ public class DatafeedSearchProbeDiagnosticsTests extends ESTestCase {
     }
 
     public void testSkippedClusterWithSecurityExceptionShouldReturnDiagnosis() {
-        ShardSearchFailure failure = new ShardSearchFailure(
-            new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN)
-        );
+        ShardSearchFailure failure = new ShardSearchFailure(new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN));
         SearchResponse.Cluster cluster = new SearchResponse.Cluster(
             "linked_project",
             "linked:logs",
@@ -62,9 +60,7 @@ public class DatafeedSearchProbeDiagnosticsTests extends ESTestCase {
     }
 
     public void testFailedClusterWithSecurityExceptionShouldReturnDiagnosis() {
-        ShardSearchFailure failure = new ShardSearchFailure(
-            new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN)
-        );
+        ShardSearchFailure failure = new ShardSearchFailure(new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN));
         SearchResponse.Cluster cluster = new SearchResponse.Cluster(
             "linked_project",
             "linked:logs",
@@ -88,9 +84,7 @@ public class DatafeedSearchProbeDiagnosticsTests extends ESTestCase {
     }
 
     public void testRunningClusterWithSecurityExceptionShouldReturnNull() {
-        ShardSearchFailure failure = new ShardSearchFailure(
-            new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN)
-        );
+        ShardSearchFailure failure = new ShardSearchFailure(new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN));
         SearchResponse.Cluster cluster = new SearchResponse.Cluster(
             "linked_project",
             "linked:logs",
@@ -114,11 +108,7 @@ public class DatafeedSearchProbeDiagnosticsTests extends ESTestCase {
     }
 
     public void testTopLevelShardSecurityFailureShouldReturnDiagnosisWithIndex() {
-        SearchShardTarget shardTarget = new SearchShardTarget(
-            "node-1",
-            new ShardId("priv-linked-logs", "uuid", 0),
-            "linked_project"
-        );
+        SearchShardTarget shardTarget = new SearchShardTarget("node-1", new ShardId("priv-linked-logs", "uuid", 0), "linked_project");
         ShardSearchFailure failure = new ShardSearchFailure(
             new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN),
             shardTarget
@@ -132,9 +122,7 @@ public class DatafeedSearchProbeDiagnosticsTests extends ESTestCase {
     }
 
     public void testTopLevelShardSecurityFailureWithoutIndexShouldReturnGenericDiagnosis() {
-        ShardSearchFailure failure = new ShardSearchFailure(
-            new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN)
-        );
+        ShardSearchFailure failure = new ShardSearchFailure(new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN));
         SearchResponse response = mock(SearchResponse.class);
         when(response.getClusters()).thenReturn(SearchResponse.Clusters.EMPTY);
         when(response.getShardFailures()).thenReturn(new ShardSearchFailure[] { failure });

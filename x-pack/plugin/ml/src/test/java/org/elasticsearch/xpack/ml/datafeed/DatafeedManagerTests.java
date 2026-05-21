@@ -15,7 +15,6 @@ import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.search.ShardSearchFailure;
 import org.elasticsearch.action.search.TransportSearchAction;
-import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.metadata.Metadata;
@@ -142,9 +141,7 @@ public class DatafeedManagerTests extends ESTestCase {
 
     @SuppressWarnings("unchecked")
     private static void mockSearchProbeOkWithSkippedClusterSecurityFailure(Client client) {
-        ShardSearchFailure failure = new ShardSearchFailure(
-            new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN)
-        );
+        ShardSearchFailure failure = new ShardSearchFailure(new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN));
         SearchResponse.Cluster cluster = new SearchResponse.Cluster(
             "linked_project",
             "linked:logs",
