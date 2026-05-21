@@ -75,7 +75,6 @@ public final class CredentialTransitions {
         boolean crossProjectEnabled,
         boolean callerHasCloudCredential,
         boolean envelopeExists,
-        boolean configRequiresCloudInternal,
         boolean affectsCrossProjectSearchSurface
     ) {}
 
@@ -109,16 +108,14 @@ public final class CredentialTransitions {
         if (ctx.callerHasCloudCredential() == false && ctx.envelopeExists()) {
             return Intent.CLEAR;
         }
-        if (ctx.callerHasCloudCredential()
-            && ctx.configRequiresCloudInternal()
-            && (ctx.envelopeExists() == false || ctx.affectsCrossProjectSearchSurface())) {
+        if (ctx.callerHasCloudCredential() && (ctx.envelopeExists() == false || ctx.affectsCrossProjectSearchSurface())) {
             return Intent.REPLACE;
         }
         return Intent.KEEP;
     }
 
     public static Intent decideForCreate(TransitionContext ctx) {
-        if (ctx.crossProjectEnabled() && ctx.callerHasCloudCredential() && ctx.configRequiresCloudInternal()) {
+        if (ctx.crossProjectEnabled() && ctx.callerHasCloudCredential()) {
             return Intent.REPLACE;
         }
         return Intent.KEEP;

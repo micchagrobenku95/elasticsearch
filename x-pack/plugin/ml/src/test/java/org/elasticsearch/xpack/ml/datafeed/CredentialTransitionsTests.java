@@ -23,60 +23,50 @@ public class CredentialTransitionsTests extends ESTestCase {
         boolean crossProjectEnabled,
         boolean callerHasCloudCredential,
         boolean envelopeExists,
-        boolean configRequiresCloudInternal,
         boolean affectsCrossProjectSearchSurface
     ) {
         return new TransitionContext(
             crossProjectEnabled,
             callerHasCloudCredential,
             envelopeExists,
-            configRequiresCloudInternal,
             affectsCrossProjectSearchSurface
         );
     }
 
     public void testCpsDisabledShouldDecideKeep() {
-        assertThat(CredentialTransitions.decideForUpdate(ctx(false, true, true, true, true)), equalTo(Intent.KEEP));
+        assertThat(CredentialTransitions.decideForUpdate(ctx(false, true, true, true)), equalTo(Intent.KEEP));
     }
 
     public void testNoCloudCallerWithEnvelopeShouldDecideClear() {
-        assertThat(CredentialTransitions.decideForUpdate(ctx(true, false, true, false, false)), equalTo(Intent.CLEAR));
+        assertThat(CredentialTransitions.decideForUpdate(ctx(true, false, true, false)), equalTo(Intent.CLEAR));
     }
 
     public void testNoCloudCallerWithoutEnvelopeShouldDecideKeep() {
-        assertThat(CredentialTransitions.decideForUpdate(ctx(true, false, false, true, true)), equalTo(Intent.KEEP));
-    }
-
-    public void testCloudCallerOnConfigNotRequiringInternalShouldDecideKeep() {
-        assertThat(CredentialTransitions.decideForUpdate(ctx(true, true, false, false, false)), equalTo(Intent.KEEP));
+        assertThat(CredentialTransitions.decideForUpdate(ctx(true, false, false, true)), equalTo(Intent.KEEP));
     }
 
     public void testCloudCallerOnConfigRequiringInternalWithoutEnvelopeShouldDecideReplace() {
-        assertThat(CredentialTransitions.decideForUpdate(ctx(true, true, false, true, false)), equalTo(Intent.REPLACE));
+        assertThat(CredentialTransitions.decideForUpdate(ctx(true, true, false, false)), equalTo(Intent.REPLACE));
     }
 
     public void testCloudCallerOnConfigRequiringInternalWithEnvelopeNoSurfaceChangeShouldDecideKeep() {
-        assertThat(CredentialTransitions.decideForUpdate(ctx(true, true, true, true, false)), equalTo(Intent.KEEP));
+        assertThat(CredentialTransitions.decideForUpdate(ctx(true, true, true, false)), equalTo(Intent.KEEP));
     }
 
     public void testCloudCallerOnConfigRequiringInternalWithEnvelopeAndSurfaceChangeShouldDecideReplace() {
-        assertThat(CredentialTransitions.decideForUpdate(ctx(true, true, true, true, true)), equalTo(Intent.REPLACE));
+        assertThat(CredentialTransitions.decideForUpdate(ctx(true, true, true, true)), equalTo(Intent.REPLACE));
     }
 
     public void testCreateWithCpsDisabledShouldDecideKeep() {
-        assertThat(CredentialTransitions.decideForCreate(ctx(false, true, false, true, false)), equalTo(Intent.KEEP));
+        assertThat(CredentialTransitions.decideForCreate(ctx(false, true, false, false)), equalTo(Intent.KEEP));
     }
 
     public void testCreateWithNoCloudCallerShouldDecideKeep() {
-        assertThat(CredentialTransitions.decideForCreate(ctx(true, false, false, true, false)), equalTo(Intent.KEEP));
+        assertThat(CredentialTransitions.decideForCreate(ctx(true, false, false, false)), equalTo(Intent.KEEP));
     }
 
-    public void testCreateWithCloudCallerOnNonCpsConfigShouldDecideKeep() {
-        assertThat(CredentialTransitions.decideForCreate(ctx(true, true, false, false, false)), equalTo(Intent.KEEP));
-    }
-
-    public void testCreateWithCloudCallerOnCpsConfigShouldDecideReplace() {
-        assertThat(CredentialTransitions.decideForCreate(ctx(true, true, false, true, false)), equalTo(Intent.REPLACE));
+    public void testCreateWithCloudCallerAndCpsEnabledShouldDecideReplace() {
+        assertThat(CredentialTransitions.decideForCreate(ctx(true, true, false, false)), equalTo(Intent.REPLACE));
     }
 
     public void testKeepAndClearAreSingletons() {

@@ -291,6 +291,73 @@ public class DatafeedManagerTests extends ESTestCase {
         Mockito.verify(secondaryAuth, Mockito.atLeast(2)).wrap(any(Runnable.class));
     }
 
+    @SuppressWarnings("unchecked")
+    public void testPutDatafeed_MintsWhenCpsEnabledAndCloudCallerWithoutRouting() {
+        Settings settings = cpsWithSecurityEnabledSettings();
+
+        DatafeedConfigProvider datafeedConfigProvider = mock(DatafeedConfigProvider.class);
+        CloudCredentialManager credentialManager = mock(CloudCredentialManager.class);
+        InternalCloudApiKeyService apiKeyService = mock(InternalCloudApiKeyService.class);
+        MachineLearningExtension mlExtension = mockMlExtension(credentialManager, apiKeyService);
+        JobConfigProvider jobConfigProvider = mock(JobConfigProvider.class);
+        Client client = mock(Client.class);
+        ThreadPool threadPool = mock(ThreadPool.class);
+        ThreadContext threadContext = new ThreadContext(Settings.EMPTY);
+        when(threadPool.getThreadContext()).thenReturn(threadContext);
+        when(client.threadPool()).thenReturn(threadPool);
+
+        AnomalyDetectionAuditor auditor = mockAuditor();
+        DatafeedManager manager = newDatafeedManager(datafeedConfigProvider, jobConfigProvider, settings, client, mlExtension, auditor);
+
+        when(credentialManager.hasCloudManagedCredential(any())).thenReturn(true);
+        CloudCredential extractedCredential = new CloudCredential(new SecureString("caller-token".toCharArray()));
+        when(credentialManager.extractCloudManagedCredential(any())).thenReturn(extractedCredential);
+
+        PersistedCloudCredential persisted = new PersistedCloudCredential("minted-key-id", new SecureString("secret".toCharArray()));
+        mockGrantSucceeds(apiKeyService, persisted);
+
+        stubClientForSecurityPutPath(client, threadPool);
+        mockSearchProbeSucceeds(client);
+
+        doAnswer(invocation -> {
+            ActionListener<Set<String>> listener = (ActionListener<Set<String>>) invocation.getArguments()[1];
+            listener.onResponse(Collections.emptySet());
+            return null;
+        }).when(datafeedConfigProvider).findDatafeedIdsForJobIds(any(), any());
+
+        doAnswer(invocation -> {
+            ActionListener<Boolean> listener = (ActionListener<Boolean>) invocation.getArguments()[1];
+            listener.onResponse(Boolean.TRUE);
+            return null;
+        }).when(jobConfigProvider).validateDatafeedJob(any(), any());
+
+        doAnswer(invocation -> {
+            ActionListener<Tuple<DatafeedConfig, DocWriteResponse>> listener = (ActionListener<
+                Tuple<DatafeedConfig, DocWriteResponse>>) invocation.getArguments()[2];
+            DatafeedConfig cfg = invocation.getArgument(0);
+            listener.onResponse(Tuple.tuple(cfg, mock(DocWriteResponse.class)));
+            return null;
+        }).when(datafeedConfigProvider).putDatafeedConfig(any(), any(), any());
+
+        DatafeedConfig.Builder builder = new DatafeedConfig.Builder("test-datafeed", "test-job");
+        builder.setIndices(List.of("logs-*"));
+        PutDatafeedAction.Request request = new PutDatafeedAction.Request(builder.build());
+
+        SecurityContext securityContext = mockSecurityContextWithUser("df-user");
+
+        AtomicReference<PutDatafeedAction.Response> response = new AtomicReference<>();
+        manager.putDatafeed(
+            request,
+            mockClusterStateForUpdate(),
+            securityContext,
+            threadPool,
+            ActionListener.wrap(response::set, e -> fail("unexpected failure: " + e))
+        );
+
+        assertThat(response.get().getResponse().getCloudInternalCredential(), equalTo(persisted));
+        assertThat(response.get().getResponse().getProjectRouting(), equalTo(null));
+    }
+
     /**
      * If downstream work fails after a cloud API key was granted, the minted key is revoked and the failure is propagated.
      */

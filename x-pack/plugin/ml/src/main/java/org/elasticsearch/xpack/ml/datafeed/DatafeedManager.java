@@ -26,7 +26,6 @@ import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.crossproject.CrossProjectModeDecider;
 import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.threadpool.ThreadPool;
-import org.elasticsearch.transport.RemoteClusterAware;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.elasticsearch.xcontent.XContentBuilder;
 import org.elasticsearch.xcontent.json.JsonXContent;
@@ -121,19 +120,6 @@ public final class DatafeedManager {
 
     private boolean crossProjectMlEnabled() {
         return crossProjectModeDecider.crossProjectEnabled() && CloudCredentialsExtension.ML_CROSS_PROJECT.isEnabled();
-    }
-
-    /**
-     * Whether this datafeed may execute cross-project searches that require a persisted internal cloud credential.
-     */
-    static boolean datafeedNeedsCloudInternalCredential(DatafeedConfig datafeed) {
-        if (datafeed.getProjectRouting() != null) {
-            return true;
-        }
-        if (datafeed.getIndicesOptions().resolveCrossProjectIndexExpression()) {
-            return true;
-        }
-        return RemoteClusterAware.getRemoteIndexExpressions(datafeed.getIndices().toArray(String[]::new)).isEmpty() == false;
     }
 
     public void putDatafeed(
@@ -280,7 +266,6 @@ public final class DatafeedManager {
                         crossProjectMlEnabled(),
                         hasCpsCredential,
                         current.getCloudInternalCredential() != null,
-                        datafeedNeedsCloudInternalCredential(merged),
                         update.affectsCrossProjectSearchSurface(current)
                     );
                     CredentialTransitions.Intent intent = CredentialTransitions.decideForUpdate(ctx);
@@ -357,7 +342,6 @@ public final class DatafeedManager {
                 crossProjectMlEnabled(),
                 hasCpsCredential,
                 false,
-                datafeedNeedsCloudInternalCredential(request.getDatafeed()),
                 false
             );
             CredentialTransitions.Intent intent = CredentialTransitions.decideForCreate(ctx);
